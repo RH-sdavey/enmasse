@@ -18,12 +18,14 @@ public class AdminCrd {
     private static final CustomResourceDefinition ADDRESS_SPACE_PLAN_CRD;
     private static final CustomResourceDefinition BROKERED_INFRA_CONFIG_CRD;
     private static final CustomResourceDefinition STANDARD_INFRA_CONFIG_CRD;
+    private static final CustomResourceDefinition KAFKA_INFRA_CONFIG_CRD;
 
     static {
         ADDRESS_PLAN_CRD = CustomResources.createCustomResource(GROUP, VERSION, AddressPlan.KIND);
         ADDRESS_SPACE_PLAN_CRD = CustomResources.createCustomResource(GROUP, VERSION, AddressSpacePlan.KIND);
         BROKERED_INFRA_CONFIG_CRD = CustomResources.createCustomResource(GROUP, VERSION, BrokeredInfraConfig.KIND);
         STANDARD_INFRA_CONFIG_CRD = CustomResources.createCustomResource(GROUP, VERSION, StandardInfraConfig.KIND);
+        KAFKA_INFRA_CONFIG_CRD = CustomResources.createCustomResource(GROUP, VERSION, KafkaInfraConfig.KIND);
     }
 
     public static void registerCustomCrds() {
@@ -58,4 +60,7 @@ public class AdminCrd {
         return STANDARD_INFRA_CONFIG_CRD;
     }
 
+    public static CustomResourceDefinition kafkaInfraConfigs() {
+        return KAFKA_INFRA_CONFIG_CRD;
+    }
 }

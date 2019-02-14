@@ -7,6 +7,7 @@ package io.enmasse.controller;
 import io.enmasse.address.model.*;
 import io.enmasse.admin.model.v1.BrokeredInfraConfig;
 import io.enmasse.admin.model.v1.InfraConfig;
+import io.enmasse.admin.model.v1.KafkaInfraConfig;
 import io.enmasse.admin.model.v1.StandardInfraConfig;
 import io.enmasse.config.AnnotationKeys;
 import io.enmasse.config.LabelKeys;
@@ -16,6 +17,9 @@ import io.enmasse.controller.common.TemplateParameter;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.PersistentVolumeClaim;
 import io.fabric8.kubernetes.api.model.apps.StatefulSet;
+import io.strimzi.api.kafka.model.Kafka;
+import io.strimzi.api.kafka.model.KafkaBuilder;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -186,8 +190,21 @@ public class TemplateInfraResourceFactory implements InfraResourceFactory {
             return createStandardInfra(addressSpace, (StandardInfraConfig) infraConfig);
         } else if ("brokered".equals(addressSpace.getSpec().getType())) {
             return createBrokeredInfra(addressSpace, (BrokeredInfraConfig) infraConfig);
+        } else if ("kafka".equals(addressSpace.getSpec().getType())) {
+            return createKafkaInfra(addressSpace, (KafkaInfraConfig) infraConfig);
         } else {
             throw new IllegalArgumentException("Unknown address space type " + addressSpace.getSpec().getType());
         }
+    }
+
+    private List<HasMetadata> createKafkaInfra(AddressSpace addressSpace, KafkaInfraConfig infraConfig) {
+        Kafka kafkaCluster = new KafkaBuilder()
+                .editOrNewMetadata()
+                .withName("kafka-" + addressSpace.getMetadata().getAnnotations().get(AnnotationKeys.INFRA_UUID))
+                .addToAnnotations("app", "enmasse")
+                .endMetadata()
+                .withSpec(infraConfig.getSpec().getKafka())
+                .build();
+        return Collections.singletonList(kafkaCluster);
     }
 }

@@ -25,6 +25,7 @@ public class KubeSchemaApi implements SchemaApi {
     private final AddressPlanApi addressPlanApi;
     private final BrokeredInfraConfigApi brokeredInfraConfigApi;
     private final StandardInfraConfigApi standardInfraConfigApi;
+    private final KafkaInfraConfigApi kafkaInfraConfigApi;
     private final Clock clock;
     private static final DateTimeFormatter formatter = DateTimeFormatter
             .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
@@ -34,13 +35,15 @@ public class KubeSchemaApi implements SchemaApi {
     private volatile List<AddressSpacePlan> currentAddressSpacePlans;
     private volatile List<AddressPlan> currentAddressPlans;
     private volatile List<StandardInfraConfig> currentStandardInfraConfigs;
+    private volatile List<KafkaInfraConfig> currentKafkaInfraConfigs;
     private volatile List<BrokeredInfraConfig> currentBrokeredInfraConfigs;
 
-    public KubeSchemaApi(AddressSpacePlanApi addressSpacePlanApi, AddressPlanApi addressPlanApi, BrokeredInfraConfigApi brokeredInfraConfigApi, StandardInfraConfigApi standardInfraConfigApi, Clock clock, boolean isOpenShift) {
+    public KubeSchemaApi(AddressSpacePlanApi addressSpacePlanApi, AddressPlanApi addressPlanApi, BrokeredInfraConfigApi brokeredInfraConfigApi, StandardInfraConfigApi standardInfraConfigApi, KafkaInfraConfigApi kafkaInfraConfigApi, Clock clock, boolean isOpenShift) {
         this.addressSpacePlanApi = addressSpacePlanApi;
         this.addressPlanApi = addressPlanApi;
         this.brokeredInfraConfigApi = brokeredInfraConfigApi;
         this.standardInfraConfigApi = standardInfraConfigApi;
+        this.kafkaInfraConfigApi = kafkaInfraConfigApi;
         this.clock = clock;
         this.isOpenShift = isOpenShift;
     }
@@ -54,9 +57,11 @@ public class KubeSchemaApi implements SchemaApi {
 
         StandardInfraConfigApi standardInfraConfigApi = new KubeStandardInfraConfigApi(openShiftClient, namespace, AdminCrd.standardInfraConfigs());
 
+        KafkaInfraConfigApi kafkaInfraConfigApi = new KubeKafkaInfraConfigApi(openShiftClient, namespace, AdminCrd.kafkaInfraConfigs());
+
         Clock clock = Clock.systemUTC();
 
-        return new KubeSchemaApi(addressSpacePlanApi, addressPlanApi, brokeredInfraConfigApi, standardInfraConfigApi, clock, isOpenShift);
+        return new KubeSchemaApi(addressSpacePlanApi, addressPlanApi, brokeredInfraConfigApi, standardInfraConfigApi, kafkaInfraConfigApi, clock, isOpenShift);
     }
 
     private void validateAddressSpacePlan(AddressSpacePlan addressSpacePlan, List<AddressPlan> addressPlans, List<String> infraTemplateNames) {
@@ -191,6 +196,35 @@ public class KubeSchemaApi implements SchemaApi {
         return builder.build();
     }
 
+    private AddressSpaceType createKafkaType(List<AddressSpacePlan> addressSpacePlans, Collection<AddressPlan> addressPlans, List<InfraConfig> kafkaInfraConfigs) {
+        AddressSpaceTypeBuilder builder = new AddressSpaceTypeBuilder();
+        builder.withName("kafka");
+        builder.withDescription("A kafka address space consists of a Kafka cluster operated using the Strimzi Kafka Operator.");
+
+        List<AddressSpacePlan> filteredAddressSpaceplans = addressSpacePlans.stream()
+                .filter(plan -> "kafka".equals(plan.getAddressSpaceType()))
+                .collect(Collectors.toList());
+        builder.withPlans(filteredAddressSpaceplans);
+
+        List<AddressPlan> filteredAddressPlans = addressPlans.stream()
+                .filter(plan -> filteredAddressSpaceplans.stream()
+                        .filter(aPlan -> aPlan.getAddressPlans().contains(plan.getMetadata().getName()))
+                        .count() > 0)
+                .collect(Collectors.toList());
+
+
+        builder.withInfraConfigs(kafkaInfraConfigs);
+
+        builder.withAddressTypes(Arrays.asList(
+                createAddressType(
+                        "topic",
+                        "A topic address for store-and-forward publish-subscribe messaging. Each message published " +
+                                "to a topic address is forwarded to all subscribes on that address.",
+                        filteredAddressPlans)));
+
+        return builder.build();
+    }
+
     private AddressSpaceType createBrokeredType(List<AddressSpacePlan> addressSpacePlans, Collection<AddressPlan> addressPlans, List<InfraConfig> brokeredInfraConfigs) {
         AddressSpaceTypeBuilder builder = new AddressSpaceTypeBuilder();
         builder.withName("brokered");
@@ -260,6 +294,11 @@ public class KubeSchemaApi implements SchemaApi {
             updateSchema(watcher);
         }, resyncInterval));
 
+        watches.add(kafkaInfraConfigApi.watchKafkaInfraConfigs(items -> {
+            currentKafkaInfraConfigs = items;
+            updateSchema(watcher);
+        }, resyncInterval));
+
 
         return () -> {
             Exception e = null;
@@ -277,14 +316,14 @@ public class KubeSchemaApi implements SchemaApi {
     }
 
     private synchronized void updateSchema(Watcher<Schema> watcher) throws Exception {
-        Schema schema = assembleSchema(currentAddressSpacePlans, currentAddressPlans, currentStandardInfraConfigs, currentBrokeredInfraConfigs);
+        Schema schema = assembleSchema(currentAddressSpacePlans, currentAddressPlans, currentStandardInfraConfigs, currentBrokeredInfraConfigs, currentKafkaInfraConfigs);
         if (schema != null) {
             watcher.onUpdate(Collections.singletonList(schema));
         }
     }
 
-    Schema assembleSchema(List<AddressSpacePlan> addressSpacePlans, List<AddressPlan> addressPlans, List<StandardInfraConfig> standardInfraConfigs, List<BrokeredInfraConfig> brokeredInfraConfigs) {
-        if (addressSpacePlans == null || addressPlans == null || brokeredInfraConfigs == null || standardInfraConfigs == null) {
+    Schema assembleSchema(List<AddressSpacePlan> addressSpacePlans, List<AddressPlan> addressPlans, List<StandardInfraConfig> standardInfraConfigs, List<BrokeredInfraConfig> brokeredInfraConfigs, List<KafkaInfraConfig> kafkaInfraConfigs) {
+        if (addressSpacePlans == null || addressPlans == null || brokeredInfraConfigs == null || standardInfraConfigs == null || kafkaInfraConfigs == null) {
             return null;
         }
 
@@ -323,6 +362,7 @@ public class KubeSchemaApi implements SchemaApi {
         List<AddressSpaceType> types = new ArrayList<>();
         types.add(createBrokeredType(validAddressSpacePlans, validAddressPlans, new ArrayList<>(brokeredInfraConfigs)));
         types.add(createStandardType(validAddressSpacePlans, validAddressPlans, new ArrayList<>(standardInfraConfigs)));
+        types.add(createKafkaType(validAddressSpacePlans, validAddressPlans, new ArrayList<>(kafkaInfraConfigs)));
         return new SchemaBuilder()
                 .withAddressSpaceTypes(types)
                 .withCreationTimestamp(formatter.format(clock.instant()))
